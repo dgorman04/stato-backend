@@ -163,14 +163,7 @@ class PlayerLeaveTeamView(APIView):
         if not profile.team:
             return Response({"detail": "You are not on any team."}, status=400)
 
-        team = profile.team
-        player = profile.player
-
-        # Remove player from squad if they were added (not in original CSV)
-        # We'll keep the player record but unlink the profile
-        # Note: The player record stays, but the profile is unlinked
-
-        # Update profile
+        # Fully unlink profile from team and player — they will see no team and no stats
         profile.team = None
         profile.player = None
         profile.save()

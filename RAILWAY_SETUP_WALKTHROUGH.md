@@ -56,16 +56,26 @@ Copy the long string that’s printed (e.g. `Kx7f...`). You’ll paste it in Rai
 
 ---
 
-### Step 5 – Set the root directory to `backend`
+### Step 5 – Set the root directory so Railway finds the Django app
 
-Your repo has a `backend` folder at the top level. Railway must use that as the project root so it finds `manage.py` and `backend/settings.py`.
+Railway must build from the folder that contains `manage.py` and `requirements.txt`.
+
+**Option A – Railway says “couldn’t find root directory” or path has spaces**  
+Use a **backend-only repo** so you don’t need a root path at all. See **“Fix: Backend-only repo (no root path)”** at the end of this doc, then in Railway connect that new repo and **leave Root Directory empty**. Then skip to Step 6.
+
+**Option B – Use a path (if your repo has backend inside a subfolder)**  
+1. On GitHub, open **https://github.com/dgorman04/3rd-Year-Project** and see what’s at the **very top level** (first folder(s) you see).
+2. If you see **`backend`** and **`frontend3`** at the top: in Railway set **Root Directory** to **`backend`** (nothing else).
+3. If you see only **`OneDrive`** at the top: click into it and go **OneDrive → Attachments → Documents → Project Learning → backend**. Copy the full path from the address bar (e.g. `OneDrive/Attachments/Documents/Project Learning/backend`). If Railway rejects it (e.g. because of the space), try with a URL‑encoded space: **`OneDrive/Attachments/Documents/Project%20Learning/backend`**.
+
+**Do this:**
 
 1. In the Railway project, click the **service** that was just created (the one linked to GitHub).
 2. Go to the **Settings** tab (or the gear icon).
 3. Find **“Root Directory”** or **“Build”** → **“Root Directory”**.
-4. Set it to: **`backend`** (only that folder name, no leading slash).
+4. Enter the value from Option A or B above (no leading slash).
 5. Click **Save** or wait for it to auto-save.
-6. Trigger a new deploy (e.g. **“Redeploy”** or **“Deploy”** in the **Deployments** tab) so the build runs from the `backend` folder.
+6. Trigger a new deploy (e.g. **“Redeploy”** or **“Deploy”** in the **Deployments** tab).
 
 ---
 
@@ -203,6 +213,43 @@ The production database starts empty. To get a team and manager account:
    - Then in the browser go to `https://your-backend-url.up.railway.app/admin/` and log in.
 
 For most people, Option A (sign up through the app) is enough.
+
+---
+
+## Fix: Backend-only repo (no root path)
+
+If Railway keeps saying it **couldn’t find the root directory**, use a separate repo where the **backend is at the root**. Then Railway doesn’t need a Root Directory at all.
+
+1. **Create a new repo on GitHub** (e.g. `3rd-year-project-backend` or `stato-backend`). Leave it empty (no README).
+
+2. **On your PC**, open PowerShell and run (replace paths if yours are different):
+   ```powershell
+   cd "c:\Users\darra\OneDrive\Attachments\Documents\Project Learning"
+   mkdir stato-backend-deploy
+   cd stato-backend-deploy
+   git init
+   ```
+3. **Copy the backend contents** (not the `backend` folder itself – the files *inside* it) into this new folder so that `manage.py`, `requirements.txt`, the `backend` and `stato` folders, etc. are at the **root** of `stato-backend-deploy`:
+   ```powershell
+   Copy-Item -Path "..\backend\*" -Destination "." -Recurse -Force
+   ```
+4. **Commit and push to the new repo:**
+   ```powershell
+   git add .
+   git commit -m "Backend for Railway deploy"
+   git branch -M main
+   git remote add origin https://github.com/dgorman04/3rd-year-project-backend.git
+   git push -u origin main
+   ```
+   (Use your new repo URL instead of `3rd-year-project-backend` if the name is different.)
+
+5. **In Railway:**  
+   - Either add a **new service** → **Deploy from GitHub repo** → select this new repo,  
+   - Or change the existing service’s **source** to this new repo.  
+   - Leave **Root Directory** **empty** (or a single dot `.`).  
+   - Redeploy. The build should find `requirements.txt` and `manage.py` at the root.
+
+After that, continue from **Step 6** (generate domain, add Postgres, variables, etc.) in this walkthrough. Your main project (3rd-Year-Project) can stay as-is; this repo is only for Railway.
 
 ---
 
