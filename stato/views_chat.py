@@ -7,15 +7,14 @@ from datetime import timedelta
 
 from .models import ChatMessage, Team, Match
 from .views import _get_team
-from .permissions import IsManager
 
 
 class ChatMessagesView(APIView):
     """
-    GET /api/chat/messages/ - Get recent chat messages (managers only)
-    POST /api/chat/messages/ - Send a new message (managers only)
+    GET /api/chat/messages/ - Get recent team chat messages (manager, analyst, player with team)
+    POST /api/chat/messages/ - Send a new message (manager, analyst, player with team)
     """
-    permission_classes = [IsAuthenticated, IsManager]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         team = _get_team(request)
@@ -24,8 +23,8 @@ class ChatMessagesView(APIView):
 
         match_id = request.query_params.get("match_id")
         
-        # Get last 50 messages (only from managers)
-        queryset = ChatMessage.objects.filter(team=team, sender_role="manager")
+        # Get last 50 messages from all roles (manager, analyst, player)
+        queryset = ChatMessage.objects.filter(team=team)
         if match_id:
             try:
                 match = Match.objects.get(id=match_id, team=team)
