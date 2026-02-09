@@ -24,7 +24,7 @@ from .views_match import (
 )
 from .views_chat import ChatMessagesView
 from .views_ml import MLPerformanceImprovementView
-from .views_player import PlayerSignupView, PlayerProfileView, PlayerJoinTeamView, PlayerLeaveTeamView
+from .views_player import PlayerSignupView, PlayerProfileView, PlayerJoinTeamView, PlayerLeaveTeamView, PlayerMeStatsView
 
 
 class CustomTokenView(TokenObtainPairView):
@@ -52,6 +52,7 @@ urlpatterns = [
     path("players/join-team/", PlayerJoinTeamView.as_view()),
     path("players/leave-team/", PlayerLeaveTeamView.as_view()),
     path("players/me/", PlayerProfileView.as_view()),
+    path("players/me/stats/", PlayerMeStatsView.as_view()),
 
     # Matches
     path("matches/", MatchListCreateView.as_view()),

@@ -7,7 +7,7 @@ from django.db import transaction
 from django.db.models import Sum, Count
 
 from .models import Profile, Team, Player, PlayerEventStat
-from .serializers import TeamSerializer
+from .serializers import TeamSerializer, EventStatSerializer
 
 
 class PlayerSignupView(APIView):
@@ -223,3 +223,25 @@ class PlayerProfileView(APIView):
             "team": TeamSerializer(profile.team).data if profile.team else None,
             "performance": performance,
         }, status=200)
+
+
+class PlayerMeStatsView(APIView):
+    """
+    GET /api/players/me/stats/
+    Returns only the logged-in player's stats (per match, same format as /api/stats/)
+    so players never receive other team members' data.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        profile = getattr(request.user, "profile", None)
+        if not profile or profile.role != "player":
+            return Response({"detail": "Not a player account."}, status=403)
+
+        player = profile.player
+        if not player:
+            return Response([], status=200)
+
+        qs = PlayerEventStat.objects.filter(player=player).order_by("-updated_at")
+        serializer = EventStatSerializer(qs, many=True)
+        return Response(serializer.data, status=200)

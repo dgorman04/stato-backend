@@ -1,14 +1,21 @@
 # backend/settings.py
+import os
 from pathlib import Path
 from datetime import timedelta
 
+import dj_database_url
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = "django-insecure-dev-key"
-DEBUG = True
+SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-dev-key")
+DEBUG = os.environ.get("DEBUG", "true").lower() in ("1", "true", "yes")
 
-# Dev only
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "*").split(",") if os.environ.get("ALLOWED_HOSTS") else ["*"]
+
+# When behind ngrok (or other proxy), use X-Forwarded headers so build_absolute_uri()
+# returns the public URL (e.g. https://xxx.ngrok-free.app/media/...) not localhost
+USE_X_FORWARDED_HOST = True
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -60,12 +67,16 @@ TEMPLATES = [
 WSGI_APPLICATION = "backend.wsgi.application"
 ASGI_APPLICATION = "backend.asgi.application"
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+# Database: use DATABASE_URL on Railway (PostgreSQL), else SQLite locally
+if os.environ.get("DATABASE_URL"):
+    DATABASES = {"default": dj_database_url.config(conn_max_age=600, conn_health_checks=True)}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
     }
-}
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
@@ -101,9 +112,11 @@ CORS_ALLOW_METHODS = [
     "PUT",
 ]
 
-# helps with CSRF checks if you ever hit session/cookie endpoints (safe for dev)
-CSRF_TRUSTED_ORIGINS = [
+# CSRF trusted origins (add your Railway URL after first deploy)
+_trusted = os.environ.get("CSRF_TRUSTED_ORIGINS", "")
+CSRF_TRUSTED_ORIGINS = _trusted.split(",") if _trusted else [
     "https://*.ngrok-free.dev",
+    "https://*.railway.app",
     "http://localhost",
     "http://localhost:19006",
     "http://127.0.0.1",
@@ -130,13 +143,17 @@ SIMPLE_JWT = {
 }
 
 # ----------------------------
-# Channels + Redis
+# Channels + Redis (optional on Railway; in-memory fallback for API-only)
 # ----------------------------
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {
-            "hosts": [("localhost", 6379)],
+_redis_url = os.environ.get("REDIS_URL")
+if _redis_url:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {"hosts": [_redis_url]},
         },
-    },
-}
+    }
+else:
+    CHANNEL_LAYERS = {
+        "default": {"BACKEND": "channels.layers.InMemoryChannelLayer"},
+    }

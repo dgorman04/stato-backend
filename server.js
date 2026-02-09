@@ -10,6 +10,16 @@ const wss = new WebSocket.Server({ port: WS_PORT }, () => {
   console.log(`WebSocket running on ws://0.0.0.0:${WS_PORT}`);
 });
 
+wss.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\nPort ${WS_PORT} is already in use.`);
+    console.error('Either close the other process using it, or set WS_PORT to a different port (e.g. in .env: WS_PORT=3002).');
+    console.error('On Windows, find the process: netstat -ano | findstr :' + WS_PORT);
+    process.exit(1);
+  }
+  throw err;
+});
+
 function heartbeat() { this.isAlive = true; }
 
 wss.on('connection', (ws) => {
