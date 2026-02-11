@@ -9,7 +9,7 @@ from django.utils import timezone
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
-from .models import Player, PlayerEventStat, Match, EVENT_CHOICES, PlayerEventInstance
+from .models import Player, PlayerEventStat, Match, EVENT_CHOICES, PlayerEventInstance, Profile
 from .serializers import EventStatSerializer, MatchSerializer
 
 
@@ -222,7 +222,8 @@ class TeamPlayersView(APIView):
     def delete(self, request, player_id):
         """
         DELETE /api/teams/players/<player_id>/
-        Remove a player from the team.
+        Remove a player from the team. Also unlinks any user Profile that was
+        linked to this player so they see "no team" and can rejoin with the code.
         """
         team = _get_team(request)
         if not team:
@@ -230,6 +231,9 @@ class TeamPlayersView(APIView):
 
         try:
             player = Player.objects.get(id=player_id, team=team)
+            # Unlink any profile that was linked to this player so they see no team
+            # on home and profile until they rejoin.
+            Profile.objects.filter(player=player).update(team=None, player=None)
             player.delete()
             return Response({"ok": True, "message": "Player removed from team."}, status=200)
         except Player.DoesNotExist:
