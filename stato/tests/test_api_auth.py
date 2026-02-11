@@ -18,6 +18,7 @@ class AuthIntegrationTests(APITestCase):
         profile.role = "manager"
         profile.enabled = True
         profile.save()
+        self.user = User.objects.get(pk=self.user.pk)
 
     def test_login_returns_tokens(self):
         response = self.client.post(

@@ -253,6 +253,24 @@ After that, continue from **Step 6** (generate domain, add Postgres, variables, 
 
 ---
 
+## Quicker workflow: one command to push backend to Railway
+
+You don’t have to copy files and push by hand every time. From **Project Learning** or **Project Learning/backend** run:
+
+```powershell
+.\backend\push-backend-to-railway.ps1
+```
+
+That script copies the backend into `stato-backend-deploy`, commits, and pushes to the `stato-backend` repo (Railway). Optional: pass a commit message in quotes:
+
+```powershell
+.\backend\push-backend-to-railway.ps1 "Fix chat for players"
+```
+
+**Alternative (one repo):** If your main GitHub repo (e.g. 3rd-Year-Project) has a **`backend`** folder at the top level, you can point Railway at that repo and set **Root Directory** to **`backend`**. Then a single `git push` to main will deploy the backend; you can stop using `stato-backend-deploy` and this script.
+
+---
+
 ## Quick checklist
 
 - [ ] Code pushed to GitHub (Step 1).

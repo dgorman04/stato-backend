@@ -16,14 +16,15 @@ from .serializers import EventStatSerializer, MatchSerializer
 try:
     # Optional Redis client for publishing live updates to the separate
     # Node WebSocket server (which subscribes to the "events" channel).
+    import os
     import redis
 
     _redis_client = redis.Redis.from_url(
-        # Keep this in sync with backend/server.js REDIS_URL default
-        "redis://localhost:6379",
+        # Use REDIS_URL in production (e.g. on Railway), fall back to local.
+        os.environ.get("REDIS_URL", "redis://localhost:6379"),
         decode_responses=True,
     )
-except Exception:  # pragma: no cover - safe fallback if redis isn't installed
+except Exception:  # pragma: no cover - safe fallback if redis isn't installed / misconfigured
     _redis_client = None
 
 

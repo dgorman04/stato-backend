@@ -19,6 +19,7 @@ class MatchesIntegrationTests(APITestCase):
         profile.role = "manager"
         profile.enabled = True
         profile.save()
+        self.user = User.objects.get(pk=self.user.pk)
         self.match = Match.objects.create(
             team=self.team,
             opponent="Rivals",

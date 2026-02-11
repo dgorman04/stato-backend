@@ -2,7 +2,8 @@ require('dotenv').config();
 const WebSocket = require('ws');
 const { createClient } = require('redis');
 
-const WS_PORT = process.env.WS_PORT || 3001;
+// On Railway, the platform exposes PORT. Locally we fall back to WS_PORT or 3001.
+const WS_PORT = process.env.PORT || process.env.WS_PORT || 3001;
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 
 // WebSocket server
@@ -72,3 +73,4 @@ setInterval(() => {
 
   console.log('Subscribed to Redis channels: events, chat');
 })();
+

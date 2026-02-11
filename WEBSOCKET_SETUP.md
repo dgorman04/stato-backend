@@ -29,10 +29,10 @@ Check: `redis-cli ping` should reply `PONG`.
 
 ### 2. Start the Node WebSocket server
 
-From the **backend** folder:
+From the **backend/ws-server** folder:
 
 ```bash
-cd backend
+cd backend/ws-server
 node server.js
 ```
 
@@ -80,7 +80,7 @@ If the phone and computer are on the same Wi‑Fi:
 2. In the frontend `.env`:
    - `EXPO_PUBLIC_API_BASE=http://192.168.x.x:8000`
    - `EXPO_PUBLIC_WS_URL=ws://192.168.x.x:3001`
-3. Start Redis and `node server.js` as above. No second ngrok needed.
+3. Start Redis and `node backend/ws-server/server.js` as above. No second ngrok needed.
 
 ---
 

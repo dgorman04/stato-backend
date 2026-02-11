@@ -85,7 +85,7 @@ class PlayerJoinTeamView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        profile = getattr(request.user, "profile", None)
+        profile = Profile.objects.filter(user=request.user).first()
         if not profile or profile.role != "player":
             return Response({"detail": "Only players can join teams."}, status=403)
 
@@ -156,7 +156,7 @@ class PlayerLeaveTeamView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        profile = getattr(request.user, "profile", None)
+        profile = Profile.objects.filter(user=request.user).first()
         if not profile or profile.role != "player":
             return Response({"detail": "Only players can leave teams."}, status=403)
 
@@ -179,7 +179,7 @@ class PlayerProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        profile = getattr(request.user, "profile", None)
+        profile = Profile.objects.filter(user=request.user).first()
         if not profile or profile.role != "player":
             return Response({"detail": "Not a player account."}, status=403)
 
@@ -227,7 +227,7 @@ class PlayerMeStatsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        profile = getattr(request.user, "profile", None)
+        profile = Profile.objects.filter(user=request.user).first()
         if not profile or profile.role != "player":
             return Response({"detail": "Not a player account."}, status=403)
 
