@@ -2,6 +2,7 @@
 Match management views: timer control, video upload, event instances, live and post-match suggestions.
 Formation comparison uses Match.opponent_formation only; no opposition event stats.
 """
+import re
 from urllib.parse import quote
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -10,7 +11,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 
 from django.core.files.storage import default_storage
-from django.http import FileResponse
+from django.http import FileResponse, HttpResponse
 from rest_framework.permissions import AllowAny
 
 from .models import Match, PlayerEventInstance, MatchRecording, EVENT_CHOICES
@@ -217,16 +218,63 @@ class MatchRecordingStreamView(APIView):
         if not default_storage.exists(name):
             return Response({"detail": "Recording file not found."}, status=404)
         content_type = _content_type_for_recording(name)
+        origin = request.headers.get("Origin", "*")
+
+        def add_cors(r):
+            r["Access-Control-Allow-Origin"] = origin
+            r["Access-Control-Expose-Headers"] = "Accept-Ranges, Content-Length, Content-Range"
+
         try:
-            f = default_storage.open(name, "rb")
-            response = FileResponse(f, content_type=content_type, as_attachment=False)
-            response["Accept-Ranges"] = "bytes"
-            # Ensure CORS so <video> from another origin can load this stream
-            response["Access-Control-Allow-Origin"] = request.headers.get("Origin", "*")
-            response["Access-Control-Expose-Headers"] = "Accept-Ranges, Content-Length, Content-Range"
-            return response
+            size = default_storage.size(name)
+        except Exception:
+            size = None
+        if size is None:
+            # Fallback: open and get size by seeking (e.g. some storages)
+            try:
+                with default_storage.open(name, "rb") as f:
+                    f.seek(0, 2)
+                    size = f.tell()
+            except Exception as e:
+                return Response({"detail": str(e)}, status=500)
+
+        range_header = request.META.get("HTTP_RANGE", "").strip()
+        if not range_header:
+            try:
+                f = default_storage.open(name, "rb")
+                response = FileResponse(f, content_type=content_type, as_attachment=False)
+                response["Accept-Ranges"] = "bytes"
+                response["Content-Length"] = str(size)
+                add_cors(response)
+                return response
+            except Exception as e:
+                return Response({"detail": str(e)}, status=500)
+
+        match = re.match(r"bytes=(\d*)-(\d*)", range_header)
+        if not match:
+            r = HttpResponse(status=416)
+            add_cors(r)
+            return r
+        start_s, end_s = match.groups()
+        start = int(start_s) if start_s else 0
+        end = int(end_s) if end_s else size - 1
+        if start >= size:
+            r = HttpResponse(status=416)
+            add_cors(r)
+            return r
+        end = min(end, size - 1)
+        length = end - start + 1
+        try:
+            with default_storage.open(name, "rb") as f:
+                f.seek(start)
+                content = f.read(length)
         except Exception as e:
             return Response({"detail": str(e)}, status=500)
+        response = HttpResponse(content, status=206, content_type=content_type)
+        response["Content-Range"] = f"bytes {start}-{end}/{size}"
+        response["Content-Length"] = str(length)
+        response["Accept-Ranges"] = "bytes"
+        add_cors(response)
+        return response
 
 
 class MatchEventInstancesView(APIView):
