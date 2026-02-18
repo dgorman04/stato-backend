@@ -167,10 +167,12 @@ class MatchVideoUploadURLView(APIView):
             ext = "mp4"
         key = f"recordings/match_{match_id}/{uuid.uuid4().hex}.{ext}"
 
+        # Do not sign ContentType so the client can send the real type (e.g. video/quicktime for .mov).
+        # Otherwise S3 returns 403 SignatureDoesNotMatch when Content-Type differs.
         try:
             url = s3.generate_presigned_url(
                 "put_object",
-                Params={"Bucket": bucket, "Key": key, "ContentType": "video/mp4"},
+                Params={"Bucket": bucket, "Key": key},
                 ExpiresIn=3600,
             )
         except Exception as e:
