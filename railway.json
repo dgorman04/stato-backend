@@ -4,7 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "gunicorn backend.wsgi --bind 0.0.0.0:$PORT --timeout 900",
+    "startCommand": "gunicorn backend.wsgi --bind 0.0.0.0:$PORT --timeout 3600",
     "releaseCommand": "python manage.py migrate --noinput",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10

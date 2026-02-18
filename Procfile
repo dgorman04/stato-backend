@@ -1,1 +1,1 @@
-web: gunicorn backend.wsgi --bind 0.0.0.0:$PORT --timeout 900
+web: gunicorn backend.wsgi --bind 0.0.0.0:$PORT --timeout 3600

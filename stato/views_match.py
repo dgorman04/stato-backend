@@ -2,7 +2,6 @@
 Match management views: timer control, video upload, event instances, live and post-match suggestions.
 Formation comparison uses Match.opponent_formation only; no opposition event stats.
 """
-import uuid
 from urllib.parse import quote
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -11,7 +10,6 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 
 from django.core.files.storage import default_storage
-from django.conf import settings
 from django.http import FileResponse
 from rest_framework.permissions import AllowAny
 
@@ -116,117 +114,6 @@ class MatchVideoUploadView(APIView):
         return Response({
             "ok": True,
             "recording_url": request.build_absolute_uri(recording.file.url) if recording.file else None,
-            "recording_stream_url": stream_url,
-            "duration_seconds": recording.duration_seconds,
-        }, status=200 if created else 201)
-
-
-def _s3_client():
-    """Return boto3 S3 client if AWS is configured."""
-    bucket = getattr(settings, "AWS_STORAGE_BUCKET_NAME", None)
-    if not bucket:
-        return None
-    try:
-        import boto3
-        return boto3.client(
-            "s3",
-            region_name=getattr(settings, "AWS_S3_REGION_NAME", "eu-west-1"),
-            aws_access_key_id=getattr(settings, "AWS_ACCESS_KEY_ID", None) or None,
-            aws_secret_access_key=getattr(settings, "AWS_SECRET_ACCESS_KEY", None) or None,
-        )
-    except Exception:
-        return None
-
-
-class MatchVideoUploadURLView(APIView):
-    """
-    POST /api/matches/<match_id>/video/upload-url/
-    Returns a presigned PUT URL for direct upload to S3. Client uploads file to the URL, then calls confirm.
-    Requires AWS_STORAGE_BUCKET_NAME (and credentials) to be set.
-    """
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, match_id):
-        team = _get_team(request)
-        if not team:
-            return Response({"detail": "No team assigned."}, status=400)
-        match = Match.objects.filter(team=team, id=match_id).first()
-        if not match:
-            return Response({"detail": "Match not found."}, status=404)
-
-        s3 = _s3_client()
-        if not s3:
-            return Response(
-                {"detail": "S3 upload is not configured. Set AWS_STORAGE_BUCKET_NAME and credentials."},
-                status=503,
-            )
-
-        bucket = settings.AWS_STORAGE_BUCKET_NAME
-        ext = (request.data.get("filename") or "video.mp4").split(".")[-1]
-        if ext not in ("mp4", "mov", "webm", "avi"):
-            ext = "mp4"
-        key = f"recordings/match_{match_id}/{uuid.uuid4().hex}.{ext}"
-
-        # Do not sign ContentType so the client can send the real type (e.g. video/quicktime for .mov).
-        # Otherwise S3 returns 403 SignatureDoesNotMatch when Content-Type differs.
-        try:
-            url = s3.generate_presigned_url(
-                "put_object",
-                Params={"Bucket": bucket, "Key": key},
-                ExpiresIn=3600,
-            )
-        except Exception as e:
-            return Response({"detail": f"Failed to generate upload URL: {str(e)}"}, status=500)
-
-        return Response({
-            "upload_url": url,
-            "key": key,
-            "expires_in": 3600,
-        }, status=200)
-
-
-class MatchVideoConfirmView(APIView):
-    """
-    POST /api/matches/<match_id>/video/confirm/
-    body: { key: "<s3 key>" }
-    After client uploads file to the presigned URL, call this to save the recording.
-    """
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, match_id):
-        team = _get_team(request)
-        if not team:
-            return Response({"detail": "No team assigned."}, status=400)
-        match = Match.objects.filter(team=team, id=match_id).first()
-        if not match:
-            return Response({"detail": "Match not found."}, status=404)
-
-        key = (request.data.get("key") or "").strip()
-        if not key or not key.startswith(f"recordings/match_{match_id}/"):
-            return Response({"detail": "Invalid or missing key."}, status=400)
-
-        recording, created = MatchRecording.objects.update_or_create(
-            match=match,
-            defaults={"file": key},
-        )
-        if request.data.get("duration_seconds") is not None:
-            try:
-                recording.duration_seconds = int(request.data.get("duration_seconds"))
-                recording.save(update_fields=["duration_seconds"])
-            except (TypeError, ValueError):
-                pass
-
-        recording_url = recording.file.url if recording.file else None
-        if callable(recording_url):
-            recording_url = recording_url()
-        if request.user.is_authenticated:
-            token = make_stream_token(match_id, request.user.id)
-            stream_url = request.build_absolute_uri(f"/api/matches/{match_id}/recording/stream/?token={quote(token, safe='')}")
-        else:
-            stream_url = None
-        return Response({
-            "ok": True,
-            "recording_url": recording_url,
             "recording_stream_url": stream_url,
             "duration_seconds": recording.duration_seconds,
         }, status=200 if created else 201)

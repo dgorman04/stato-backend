@@ -86,23 +86,9 @@ MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Optional: S3 for media (video uploads). If set, client uploads directly to S3 via presigned URL.
-if os.environ.get("AWS_STORAGE_BUCKET_NAME"):
-    DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
-    AWS_STORAGE_BUCKET_NAME = os.environ.get("AWS_STORAGE_BUCKET_NAME")
-    AWS_S3_REGION_NAME = os.environ.get("AWS_S3_REGION_NAME", "eu-north-1")
-    AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID", "")
-    AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY", "")
-    AWS_S3_FILE_OVERWRITE = False
-    AWS_DEFAULT_ACL = "private"
-    AWS_S3_OBJECT_PARAMETERS = {"CacheControl": "max-age=86400"}
-    # Public URL for private bucket: use presigned or set bucket policy. Here we use custom domain or bucket URL.
-    AWS_S3_CUSTOM_DOMAIN = os.environ.get("AWS_S3_CUSTOM_DOMAIN", None)  # e.g. cdn.example.com
-    AWS_QUERYSTRING_AUTH = True  # presigned URLs for private access
-
+# Media: local filesystem only (MEDIA_ROOT). No S3.
 # No practical video size limit: allow very large uploads (Django streams to temp file).
-# Presigned S3 uploads bypass Django; fallback POST /video/ uses these.
-# Railway request timeout may still apply for very large fallback uploads.
+# Railway request timeout may still apply for very large uploads.
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024 * 1024  # 10 GB
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024         # 10 MB in RAM, rest streamed to disk
 
