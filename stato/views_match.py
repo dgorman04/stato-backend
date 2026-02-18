@@ -1,6 +1,8 @@
 """
-Match management views: timer control, video upload, opposition stats, event instances.
+Match management views: timer control, video upload, event instances, live and post-match suggestions.
+Formation comparison uses Match.opponent_formation only; no opposition event stats.
 """
+import uuid
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -10,15 +12,16 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from django.core.files.storage import default_storage
 from django.conf import settings
 
-from .models import Match, PlayerEventInstance, OppositionStat, MatchRecording, EVENT_CHOICES
-from .serializers import MatchSerializer, EventInstanceSerializer, OppositionStatSerializer
+from .models import Match, PlayerEventInstance, MatchRecording, EVENT_CHOICES
+from .serializers import MatchSerializer, EventInstanceSerializer
 from .views import _get_team, EVENT_KEYS
 
 
 class MatchTimerControlView(APIView):
     """
     POST /api/matches/<match_id>/timer/
-    body: { action: "start" | "pause" | "resume" | "half_time" | "finish", elapsed_seconds?: number }
+    body: { action: "start" | "pause" | "resume" | "finish", elapsed_seconds?: number }
+    Timer has three states: not_started, in_progress, paused, finished.
     """
     permission_classes = [IsAuthenticated]
 
@@ -35,33 +38,24 @@ class MatchTimerControlView(APIView):
         elapsed = request.data.get("elapsed_seconds")
 
         if action == "start":
-            match.state = "first_half"
-            match.elapsed_seconds = 0
+            match.state = "in_progress"
+            match.elapsed_seconds = int(elapsed) if elapsed is not None else 0
         elif action == "pause":
+            match.state = "paused"
             if elapsed is not None:
                 match.elapsed_seconds = int(elapsed)
         elif action == "resume":
-            if match.state == "first_half":
-                match.state = "first_half"
-            elif match.state == "second_half":
-                match.state = "second_half"
-        elif action == "half_time":
-            match.state = "half_time"
-            if elapsed is not None:
-                match.first_half_duration = int(elapsed)
-        elif action == "second_half":
-            match.state = "second_half"
+            match.state = "in_progress"
             if elapsed is not None:
                 match.elapsed_seconds = int(elapsed)
         elif action == "finish":
             match.state = "finished"
             if elapsed is not None:
                 match.elapsed_seconds = int(elapsed)
-            # Calculate xG when match finishes
             from .views import _update_match_xg
             _update_match_xg(match)
         else:
-            return Response({"detail": "Invalid action."}, status=400)
+            return Response({"detail": "Invalid action. Use start, pause, resume, or finish."}, status=400)
 
         match.save()
         return Response(MatchSerializer(match, context={"request": request}).data, status=200)
@@ -117,6 +111,109 @@ class MatchVideoUploadView(APIView):
         }, status=200 if created else 201)
 
 
+def _s3_client():
+    """Return boto3 S3 client if AWS is configured."""
+    bucket = getattr(settings, "AWS_STORAGE_BUCKET_NAME", None)
+    if not bucket:
+        return None
+    try:
+        import boto3
+        return boto3.client(
+            "s3",
+            region_name=getattr(settings, "AWS_S3_REGION_NAME", "eu-west-1"),
+            aws_access_key_id=getattr(settings, "AWS_ACCESS_KEY_ID", None) or None,
+            aws_secret_access_key=getattr(settings, "AWS_SECRET_ACCESS_KEY", None) or None,
+        )
+    except Exception:
+        return None
+
+
+class MatchVideoUploadURLView(APIView):
+    """
+    POST /api/matches/<match_id>/video/upload-url/
+    Returns a presigned PUT URL for direct upload to S3. Client uploads file to the URL, then calls confirm.
+    Requires AWS_STORAGE_BUCKET_NAME (and credentials) to be set.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, match_id):
+        team = _get_team(request)
+        if not team:
+            return Response({"detail": "No team assigned."}, status=400)
+        match = Match.objects.filter(team=team, id=match_id).first()
+        if not match:
+            return Response({"detail": "Match not found."}, status=404)
+
+        s3 = _s3_client()
+        if not s3:
+            return Response(
+                {"detail": "S3 upload is not configured. Set AWS_STORAGE_BUCKET_NAME and credentials."},
+                status=503,
+            )
+
+        bucket = settings.AWS_STORAGE_BUCKET_NAME
+        ext = (request.data.get("filename") or "video.mp4").split(".")[-1]
+        if ext not in ("mp4", "mov", "webm", "avi"):
+            ext = "mp4"
+        key = f"recordings/match_{match_id}/{uuid.uuid4().hex}.{ext}"
+
+        try:
+            url = s3.generate_presigned_url(
+                "put_object",
+                Params={"Bucket": bucket, "Key": key, "ContentType": "video/mp4"},
+                ExpiresIn=3600,
+            )
+        except Exception as e:
+            return Response({"detail": f"Failed to generate upload URL: {str(e)}"}, status=500)
+
+        return Response({
+            "upload_url": url,
+            "key": key,
+            "expires_in": 3600,
+        }, status=200)
+
+
+class MatchVideoConfirmView(APIView):
+    """
+    POST /api/matches/<match_id>/video/confirm/
+    body: { key: "<s3 key>" }
+    After client uploads file to the presigned URL, call this to save the recording.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, match_id):
+        team = _get_team(request)
+        if not team:
+            return Response({"detail": "No team assigned."}, status=400)
+        match = Match.objects.filter(team=team, id=match_id).first()
+        if not match:
+            return Response({"detail": "Match not found."}, status=404)
+
+        key = (request.data.get("key") or "").strip()
+        if not key or not key.startswith(f"recordings/match_{match_id}/"):
+            return Response({"detail": "Invalid or missing key."}, status=400)
+
+        recording, created = MatchRecording.objects.update_or_create(
+            match=match,
+            defaults={"file": key},
+        )
+        if request.data.get("duration_seconds") is not None:
+            try:
+                recording.duration_seconds = int(request.data.get("duration_seconds"))
+                recording.save(update_fields=["duration_seconds"])
+            except (TypeError, ValueError):
+                pass
+
+        recording_url = recording.file.url if recording.file else None
+        if callable(recording_url):
+            recording_url = recording_url()
+        return Response({
+            "ok": True,
+            "recording_url": recording_url,
+            "duration_seconds": recording.duration_seconds,
+        }, status=200 if created else 201)
+
+
 class MatchEventInstancesView(APIView):
     """
     GET /api/matches/<match_id>/events/
@@ -137,64 +234,10 @@ class MatchEventInstancesView(APIView):
         return Response(EventInstanceSerializer(instances, many=True).data, status=200)
 
 
-class OppositionStatsView(APIView):
-    """
-    GET /api/matches/<match_id>/opposition/
-    POST /api/matches/<match_id>/opposition/
-    Manage opposition team stats for comparison.
-    """
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, match_id):
-        team = _get_team(request)
-        if not team:
-            return Response({"detail": "No team assigned."}, status=400)
-
-        match = Match.objects.filter(team=team, id=match_id).first()
-        if not match:
-            return Response({"detail": "Match not found."}, status=404)
-
-        stats = OppositionStat.objects.filter(match=match)
-        return Response(OppositionStatSerializer(stats, many=True).data, status=200)
-
-    def post(self, request, match_id):
-        team = _get_team(request)
-        if not team:
-            return Response({"detail": "No team assigned."}, status=400)
-
-        match = Match.objects.filter(team=team, id=match_id).first()
-        if not match:
-            return Response({"detail": "Match not found."}, status=404)
-
-        event = request.data.get("event")
-        count = request.data.get("count", 0)
-
-        if event not in EVENT_KEYS:
-            return Response({"detail": "Invalid event."}, status=400)
-
-        try:
-            count = int(count)
-        except (TypeError, ValueError):
-            return Response({"detail": "count must be an integer."}, status=400)
-
-        stat, created = OppositionStat.objects.get_or_create(
-            match=match,
-            event=event,
-            defaults={"count": count}
-        )
-
-        if not created:
-            stat.count = count
-            stat.save()
-
-        return Response(OppositionStatSerializer(stat).data, status=200 if created else 201)
-
-
 class LiveMatchSuggestionsView(APIView):
     """
     GET /api/matches/<match_id>/live-suggestions/
-    Returns real-time tactical suggestions for live matches based on current stats and opposition.
-    Designed to help managers react to opponent and get the best out of the team in the moment.
+    Returns real-time tactical suggestions for live matches based on current stats and formation (opponent_formation).
     """
     permission_classes = [IsAuthenticated]
 
@@ -207,8 +250,8 @@ class LiveMatchSuggestionsView(APIView):
         if not match:
             return Response({"detail": "Match not found."}, status=404)
 
-        # Only provide suggestions for live matches
-        if match.state not in ["first_half", "second_half", "half_time"]:
+        # Only provide suggestions for live matches (in progress or paused)
+        if match.state not in ["in_progress", "paused"]:
             return Response({
                 "suggestions": [],
                 "message": "Match is not live."
@@ -228,12 +271,6 @@ class LiveMatchSuggestionsView(APIView):
         for stat in match_stats:
             event_totals[stat["event"]] = stat["total"] or 0
         
-        # Get opposition stats for comparison
-        opp_stats = OppositionStat.objects.filter(match=match)
-        opp_totals = {}
-        for stat in opp_stats:
-            opp_totals[stat.event] = stat.count
-        
         # Current score
         goals_for = match.goals_scored or 0
         goals_against = match.goals_conceded or 0
@@ -241,7 +278,6 @@ class LiveMatchSuggestionsView(APIView):
         
         # Time context
         elapsed = match.elapsed_seconds or 0
-        is_second_half = match.state == "second_half"
         time_remaining = (90 * 60) - elapsed  # Approximate 90 min match
         
         # 1. Score-based tactical suggestions
@@ -304,42 +340,7 @@ class LiveMatchSuggestionsView(APIView):
                     ]
                 })
         
-        # 2. Opposition threat analysis
-        opp_key_passes = opp_totals.get("key_passes", 0)
-        our_key_passes = event_totals.get("key_passes", 0)
-        
-        if opp_key_passes > our_key_passes * 1.5:
-            suggestions.append({
-                "category": "Defensive",
-                "priority": "High",
-                "title": "Opposition Creating More Chances",
-                "message": f"They have {opp_key_passes} key passes vs our {our_key_passes}. Tighten up defensively.",
-                "action_items": [
-                    "Drop deeper to limit space",
-                    "Double up on their creative players",
-                    "Close down passing lanes",
-                    "Stay compact between lines"
-                ]
-            })
-        
-        opp_shots_on = opp_totals.get("shots_on_target", 0)
-        our_shots_on = event_totals.get("shots_on_target", 0)
-        
-        if opp_shots_on > our_shots_on * 1.2:
-            suggestions.append({
-                "category": "Defensive",
-                "priority": "High",
-                "title": "Opposition Shooting More",
-                "message": f"They have {opp_shots_on} shots on target vs our {our_shots_on}. Need to limit their chances.",
-                "action_items": [
-                    "Close down quicker in final third",
-                    "Block shots and crosses",
-                    "Pressure their shooters",
-                    "Keep defensive shape"
-                ]
-            })
-        
-        # 3. Our attacking performance
+        # 2. Our attacking performance
         our_shots_on = event_totals.get("shots_on_target", 0)
         our_shots_off = event_totals.get("shots_off_target", 0)
         total_shots = our_shots_on + our_shots_off
@@ -360,6 +361,7 @@ class LiveMatchSuggestionsView(APIView):
                     ]
                 })
         
+        our_key_passes = event_totals.get("key_passes", 0)
         if our_key_passes < 3 and elapsed > 30 * 60:  # After 30 min
             suggestions.append({
                 "category": "Attacking",
@@ -471,12 +473,6 @@ class MatchPerformanceSuggestionsView(APIView):
         event_totals = {}
         for stat in match_stats:
             event_totals[stat["event"]] = stat["total"] or 0
-        
-        # Get opposition stats for comparison
-        opp_stats = OppositionStat.objects.filter(match=match)
-        opp_totals = {}
-        for stat in opp_stats:
-            opp_totals[stat.event] = stat.count
         
         # 1. Score Analysis
         goals_for = match.goals_scored or 0
@@ -633,25 +629,6 @@ class MatchPerformanceSuggestionsView(APIView):
                     "Work on cleaner defensive techniques"
                 ]
             })
-        
-        # 7. Opposition Comparison
-        if opp_totals:
-            our_key_passes = key_passes
-            opp_key_passes = opp_totals.get("key_passes", 0)
-            
-            if opp_key_passes > our_key_passes * 1.5:
-                suggestions.append({
-                    "category": "Tactical",
-                    "priority": "High",
-                    "title": "Outplayed in Attack",
-                    "message": f"Opposition created {opp_key_passes} key passes vs our {our_key_passes}.",
-                    "action_items": [
-                        "Analyze opposition's attacking patterns",
-                        "Work on defensive shape to limit their creativity",
-                        "Improve our own attacking play to match",
-                        "Consider tactical adjustments for similar opponents"
-                    ]
-                })
         
         # Sort by priority
         priority_order = {"High": 3, "Medium": 2, "Low": 1}

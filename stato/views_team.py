@@ -6,11 +6,7 @@ from django.db.models.functions import Coalesce
 
 from .models import Match, PlayerEventStat, ZoneAnalysis, PlayerEventInstance, Team
 from .serializers import ZoneAnalysisSerializer, TeamSignupSerializer, TeamSerializer
-
-
-def _get_team(request):
-    profile = getattr(request.user, "profile", None)
-    return getattr(profile, "team", None)
+from .views import _get_team
 
 
 class TeamSignupView(APIView):

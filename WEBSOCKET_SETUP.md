@@ -13,7 +13,7 @@ Django and the Node server talk via **Redis** (port 6379):
 - The **Node WebSocket server** subscribes to those channels and broadcasts every message to all connected clients.
 - The **frontend** opens a WebSocket to the Node server (not to Django).
 
-If you use **one ngrok URL** for both API and WebSocket, that URL is tunnelled to port 8000 only. So the app’s WebSocket connection hits Django instead of the Node server → connection fails → status shows **Offline**.
+If the app’s WebSocket URL points at the Django server (e.g. the same base URL as the API), the connection hits Django instead of the Node server → connection fails → status shows **Offline**. API and WebSocket must use separate URLs (Django for API, Node for WebSocket).
 
 ---
 
@@ -49,38 +49,16 @@ You should see:
 
 Leave this terminal running.
 
-### 3. Use two ngrok tunnels when testing on phone
+### 3. Configure frontend URLs
 
-- **Terminal 1:** `ngrok http 8000`  
-  → Use the `https://...` URL for **API** in the frontend `.env`:  
-  `EXPO_PUBLIC_API_BASE=https://xxxx.ngrok-free.app`
-
-- **Terminal 2:** `ngrok http 3001`  
-  → Use the `https://...` URL as **wss** for WebSockets:  
-  `EXPO_PUBLIC_WS_URL=wss://yyyy.ngrok-free.app`
-
-The two URLs must be different (two tunnels). Do **not** set `EXPO_PUBLIC_WS_URL` to the same URL as the API.
-
-### 4. Restart Expo
-
-After changing `.env`, restart the Expo app so it picks up the new `EXPO_PUBLIC_WS_URL`:
-
-```bash
-# In frontend3/SportsHub
-npx expo start
-```
-
----
-
-## Same WiFi (no ngrok)
-
-If the phone and computer are on the same Wi‑Fi:
+- **Deployed:** Set `EXPO_PUBLIC_API_BASE` to your Django API URL and `EXPO_PUBLIC_WS_URL` to your Node WebSocket URL (e.g. on Railway or your host). The two URLs must be different.
+- **Local (same Wi‑Fi):** If the phone and computer are on the same Wi‑Fi:
 
 1. Find your computer’s IP (e.g. `ipconfig` on Windows, `ifconfig` on Mac/Linux).
 2. In the frontend `.env`:
    - `EXPO_PUBLIC_API_BASE=http://192.168.x.x:8000`
    - `EXPO_PUBLIC_WS_URL=ws://192.168.x.x:3001`
-3. Start Redis and `node backend/ws-server/server.js` as above. No second ngrok needed.
+3. Start Redis and `node backend/ws-server/server.js` as above.
 
 ---
 

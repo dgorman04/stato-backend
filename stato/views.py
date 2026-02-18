@@ -6,16 +6,13 @@ from rest_framework.permissions import IsAuthenticated
 from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 
-from asgiref.sync import async_to_sync
-from channels.layers import get_channel_layer
-
 from .models import Player, PlayerEventStat, Match, EVENT_CHOICES, PlayerEventInstance, Profile
 from .serializers import EventStatSerializer, MatchSerializer
 
 
 try:
-    # Optional Redis client for publishing live updates to the separate
-    # Node WebSocket server (which subscribes to the "events" channel).
+    # Redis client for publishing live updates to the Node WebSocket server
+    # (subscribes to the "events" channel).
     import os
     import redis
 
@@ -114,30 +111,31 @@ class PerformanceInsightsView(APIView):
         insights = []
 
         for player_name, evs in by_player.items():
-            shots = evs.get("shots", 0)
-            passes = evs.get("passes", 0)
-            touches = evs.get("touches", 0)
+            shots_on = evs.get("shots_on_target", 0)
+            shots_off = evs.get("shots_off_target", 0)
+            total_shots = shots_on + shots_off
+            key_passes = evs.get("key_passes", 0)
             duels_won = evs.get("duels_won", 0)
             duels_lost = evs.get("duels_lost", 0)
             fouls = evs.get("fouls", 0)
             interceptions = evs.get("interceptions", 0)
             blocks = evs.get("blocks", 0)
 
-            # very simple hand‑crafted "scores"
-            attacking_index = shots * 2 + passes * 0.5 + touches * 0.2
+            # Simple scores from actual EVENT_CHOICES (shots_on_target, shots_off_target, key_passes, etc.)
+            attacking_index = total_shots * 2 + key_passes * 0.5
             defensive_index = interceptions * 1.5 + blocks * 1.0 + duels_won * 0.8
             discipline_index = max(0, 100 - fouls * 5)
 
             suggestions = []
 
             # Attacking suggestions
-            if shots < 2 and touches > 20:
+            if total_shots < 2 and key_passes >= 3:
                 suggestions.append(
-                    "Good involvement but low shot volume – consider encouraging more shooting opportunities."
+                    "Good passing but low shot volume – consider encouraging more shooting opportunities."
                 )
-            if passes < 15 and touches > 25:
+            if key_passes < 3 and total_shots >= 5:
                 suggestions.append(
-                    "Touches are high but pass count is low – work on quicker decision making and circulation."
+                    "Shots are being taken but key passes are low – work on creating clearer chances."
                 )
 
             # Defensive suggestions
@@ -325,7 +323,7 @@ class MatchListCreateView(APIView):
 class CurrentLiveMatchView(APIView):
     """
     GET /api/matches/current-live/
-    Returns the currently live match (state in first_half, second_half, or half_time)
+    Returns the currently live match (state in_progress or paused).
     """
     permission_classes = [IsAuthenticated]
 
@@ -336,7 +334,7 @@ class CurrentLiveMatchView(APIView):
 
         live_match = Match.objects.filter(
             team=team,
-            state__in=["first_half", "second_half", "half_time"]
+            state__in=["in_progress", "paused"]
         ).order_by("-created_at").first()
 
         if not live_match:
@@ -501,18 +499,7 @@ class IncrementEventForMatchView(APIView):
             "zone": zone,
         }
 
-        # WebSocket broadcast via either Django Channels group OR Redis → Node WS
-        try:
-            channel_layer = get_channel_layer()
-            async_to_sync(channel_layer.group_send)(
-                "stats",
-                {"type": "stat.update", "data": data},
-            )
-        except Exception:
-            # channels is optional; ignore if not configured
-            pass
-
-        # Also publish to Redis so the Node WebSocket server can broadcast
+        # Publish to Redis so the Node WebSocket server can broadcast to clients
         _publish_event_to_redis(data)
 
         # Update xG if shots events are recorded

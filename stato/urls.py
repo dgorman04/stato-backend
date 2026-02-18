@@ -17,8 +17,9 @@ from .views_team import TeamSignupView, TeamMeView, TeamPerformanceStatsView, Pl
 from .views_match import (
     MatchTimerControlView,
     MatchVideoUploadView,
+    MatchVideoUploadURLView,
+    MatchVideoConfirmView,
     MatchEventInstancesView,
-    OppositionStatsView,
     LiveMatchSuggestionsView,
     MatchPerformanceSuggestionsView,
 )
@@ -62,8 +63,9 @@ urlpatterns = [
     path("matches/<int:match_id>/<str:event>/<str:player>/increment/", IncrementEventForMatchView.as_view()),
     path("matches/<int:match_id>/timer/", MatchTimerControlView.as_view()),
     path("matches/<int:match_id>/video/", MatchVideoUploadView.as_view()),
+    path("matches/<int:match_id>/video/upload-url/", MatchVideoUploadURLView.as_view()),
+    path("matches/<int:match_id>/video/confirm/", MatchVideoConfirmView.as_view()),
     path("matches/<int:match_id>/events/", MatchEventInstancesView.as_view()),
-    path("matches/<int:match_id>/opposition/", OppositionStatsView.as_view()),
     path("matches/<int:match_id>/live-suggestions/", LiveMatchSuggestionsView.as_view()),
     path("matches/<int:match_id>/performance-suggestions/", MatchPerformanceSuggestionsView.as_view()),
 

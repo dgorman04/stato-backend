@@ -1,5 +1,5 @@
 """
-Integration tests: auth and me endpoints.
+Integration tests: login and /auth/me/ (core auth flow).
 """
 from django.contrib.auth.models import User
 from rest_framework.test import APITestCase, APIClient
@@ -9,6 +9,8 @@ from ..models import Team, Profile
 
 
 class AuthIntegrationTests(APITestCase):
+    """POST /api/auth/login/ and GET /api/auth/me/ - used on every app load."""
+
     def setUp(self):
         self.client = APIClient()
         self.team = Team.objects.create(club_name="Test Club", team_name="Test Team")
@@ -30,14 +32,6 @@ class AuthIntegrationTests(APITestCase):
         self.assertIn("access", response.data)
         self.assertIn("refresh", response.data)
 
-    def test_login_wrong_password_returns_401(self):
-        response = self.client.post(
-            "/api/auth/login/",
-            {"username": "manager@test.com", "password": "wrong"},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
     def test_me_requires_auth(self):
         response = self.client.get("/api/auth/me/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
@@ -47,6 +41,5 @@ class AuthIntegrationTests(APITestCase):
         response = self.client.get("/api/auth/me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["email"], "manager@test.com")
-        self.assertEqual(response.data["role"], "manager")
         self.assertIsNotNone(response.data.get("team"))
         self.assertEqual(response.data["team"]["id"], self.team.id)

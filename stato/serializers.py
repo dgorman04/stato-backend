@@ -2,7 +2,7 @@ from django.contrib.auth.models import User
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from .models import Player, PlayerEventStat, Profile, Team, Match, PlayerEventInstance, OppositionStat, ZoneAnalysis
+from .models import Player, PlayerEventStat, Profile, Team, Match, PlayerEventInstance, ZoneAnalysis
 
 
 class EventStatSerializer(serializers.ModelSerializer):
@@ -49,18 +49,6 @@ class EventInstanceSerializer(serializers.ModelSerializer):
     class Meta:
         model = PlayerEventInstance
         fields = ["id", "player_id", "player", "event", "second", "zone", "created_at"]
-
-
-class OppositionStatSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = OppositionStat
-        fields = ["id", "event", "count", "updated_at"]
-
-
-class PlayerSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Player
-        fields = ["id", "name", "created_at"]
 
 
 class TeamSerializer(serializers.ModelSerializer):

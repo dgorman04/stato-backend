@@ -8,8 +8,5 @@ class IsManager(BasePermission):
         profile = getattr(request.user, "profile", None)
         if not profile:
             return False
-        return profile.role == "manager"
-
-class IsEnabled(BasePermission):
-    def has_permission(self, request, view):
-        return True
+        # Manager and analyst are treated the same; accept both for backwards compatibility with existing DB rows.
+        return profile.role in ("manager", "analyst")

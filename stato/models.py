@@ -44,7 +44,6 @@ class Team(models.Model):
 class Profile(models.Model):
     ROLE_CHOICES = (
         ("manager", "Manager"),
-        ("analyst", "Analyst"),
         ("player", "Player"),
     )
 
@@ -52,7 +51,7 @@ class Profile(models.Model):
     team = models.ForeignKey(
         Team, on_delete=models.CASCADE, null=True, blank=True, related_name="members"
     )
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="analyst")
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="manager")
     enabled = models.BooleanField(default=True)
     
     # For players, link to their Player record
@@ -96,9 +95,8 @@ class Match(models.Model):
     """
     MATCH_STATE_CHOICES = [
         ("not_started", "Not Started"),
-        ("first_half", "First Half"),
-        ("half_time", "Half Time"),
-        ("second_half", "Second Half"),
+        ("in_progress", "In Progress"),
+        ("paused", "Paused"),
         ("finished", "Finished"),
     ]
 
@@ -125,7 +123,7 @@ class Match(models.Model):
     # Match state and timer
     state = models.CharField(max_length=20, choices=MATCH_STATE_CHOICES, default="not_started")
     elapsed_seconds = models.PositiveIntegerField(default=0)  # Total elapsed match time
-    first_half_duration = models.PositiveIntegerField(default=2700, null=True, blank=True)  # Default 45 min
+    first_half_duration = models.PositiveIntegerField(null=True, blank=True)  # Kept for DB compatibility; timer uses start/pause/finish only
     
     # Formation
     formation = models.CharField(max_length=20, choices=FORMATION_CHOICES, null=True, blank=True)
@@ -175,10 +173,6 @@ class PlayerEventStat(models.Model):
         return f"{self.team_id} | m{self.match_id} | {self.player.name} - {self.event}: {self.count}"
 
 
-# optional alias
-EventStat = PlayerEventStat
-
-
 class PlayerEventInstance(models.Model):
     """
     A single event occurrence with an optional timestamp + zone so we can
@@ -194,7 +188,7 @@ class PlayerEventInstance(models.Model):
     # can just send int seconds based on its match clock
     second = models.PositiveIntegerField(null=True, blank=True)
 
-    # simple pitch zone bucket (e.g. "1".."6"), aligned with the analyst UI
+    # simple pitch zone bucket (e.g. "1".."6"), aligned with the manager UI
     zone = models.CharField(max_length=8, null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -208,7 +202,7 @@ class PlayerEventInstance(models.Model):
 
 class MatchRecording(models.Model):
     """
-    Video (or any media) uploaded for a match so analysts/managers can
+    Video (or any media) uploaded for a match so managers can
     review events and jump to timestamps.
     """
 
@@ -224,35 +218,14 @@ class MatchRecording(models.Model):
         return f"Recording for match {self.match_id}"
 
 
-class OppositionStat(models.Model):
-    """
-    Track opposition team stats for comparison with our team.
-    """
-    match = models.ForeignKey(Match, on_delete=models.CASCADE, related_name="opposition_stats")
-    event = models.CharField(max_length=32, choices=EVENT_CHOICES)
-    count = models.IntegerField(default=0)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["match", "event"],
-                name="uniq_match_opposition_event",
-            ),
-        ]
-
-    def __str__(self):
-        return f"Opposition m{self.match_id} - {self.event}: {self.count}"
-
-
 class ChatMessage(models.Model):
     """
-    Real-time chat messages between team members (analyst, manager, players).
+    Real-time chat messages between team members (manager, players).
     """
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="chat_messages")
     match = models.ForeignKey(Match, on_delete=models.CASCADE, null=True, blank=True, related_name="chat_messages")
     sender = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sent_messages")
-    sender_role = models.CharField(max_length=20)  # manager, analyst, player
+    sender_role = models.CharField(max_length=20)  # manager or player
     message = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
 

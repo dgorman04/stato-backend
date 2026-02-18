@@ -12,8 +12,8 @@ DEBUG = os.environ.get("DEBUG", "true").lower() in ("1", "true", "yes")
 
 ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "*").split(",") if os.environ.get("ALLOWED_HOSTS") else ["*"]
 
-# When behind ngrok (or other proxy), use X-Forwarded headers so build_absolute_uri()
-# returns the public URL (e.g. https://xxx.ngrok-free.app/media/...) not localhost
+# When behind a reverse proxy (e.g. Railway), use X-Forwarded headers so build_absolute_uri()
+# returns the public URL for media and links.
 USE_X_FORWARDED_HOST = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
@@ -28,7 +28,6 @@ INSTALLED_APPS = [
     # Third-party apps
     "rest_framework",
     "corsheaders",
-    "channels",
 
     # Local apps
     "stato",
@@ -65,7 +64,6 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "backend.wsgi.application"
-ASGI_APPLICATION = "backend.asgi.application"
 
 # Database: use DATABASE_URL on Railway (PostgreSQL), else SQLite locally
 if os.environ.get("DATABASE_URL"):
@@ -88,17 +86,34 @@ MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Optional: S3 for media (video uploads). If set, client uploads directly to S3 via presigned URL.
+if os.environ.get("AWS_STORAGE_BUCKET_NAME"):
+    DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
+    AWS_STORAGE_BUCKET_NAME = os.environ.get("AWS_STORAGE_BUCKET_NAME")
+    AWS_S3_REGION_NAME = os.environ.get("AWS_S3_REGION_NAME", "eu-west-1")
+    AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID", "")
+    AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY", "")
+    AWS_S3_FILE_OVERWRITE = False
+    AWS_DEFAULT_ACL = "private"
+    AWS_S3_OBJECT_PARAMETERS = {"CacheControl": "max-age=86400"}
+    # Public URL for private bucket: use presigned or set bucket policy. Here we use custom domain or bucket URL.
+    AWS_S3_CUSTOM_DOMAIN = os.environ.get("AWS_S3_CUSTOM_DOMAIN", None)  # e.g. cdn.example.com
+    AWS_QUERYSTRING_AUTH = True  # presigned URLs for private access
+
+# Allow large video uploads (Django streams to temp file; default 2.5 MB would reject)
+# Note: Railway has a 5-minute request timeout – very large uploads may still fail.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024 * 1024   # 2 GB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024         # 10 MB in RAM, rest streamed to disk
+
 # ----------------------------
-# ✅ CORS (DEV) - make Expo Web + ngrok work
+# CORS – allow frontend (Expo / web) to call API
 # ----------------------------
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
 
-# allow preflight + custom headers (Authorization + ngrok header)
 from corsheaders.defaults import default_headers
 
 CORS_ALLOW_HEADERS = list(default_headers) + [
-    "ngrok-skip-browser-warning",
     "authorization",
     "content-type",
 ]
@@ -112,10 +127,9 @@ CORS_ALLOW_METHODS = [
     "PUT",
 ]
 
-# CSRF trusted origins (add your Railway URL after first deploy)
+# CSRF trusted origins – set via environment (e.g. Railway URL)
 _trusted = os.environ.get("CSRF_TRUSTED_ORIGINS", "")
 CSRF_TRUSTED_ORIGINS = _trusted.split(",") if _trusted else [
-    "https://*.ngrok-free.dev",
     "https://*.railway.app",
     "http://localhost",
     "http://localhost:19006",
@@ -142,18 +156,3 @@ SIMPLE_JWT = {
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
-# ----------------------------
-# Channels + Redis (optional on Railway; in-memory fallback for API-only)
-# ----------------------------
-_redis_url = os.environ.get("REDIS_URL")
-if _redis_url:
-    CHANNEL_LAYERS = {
-        "default": {
-            "BACKEND": "channels_redis.core.RedisChannelLayer",
-            "CONFIG": {"hosts": [_redis_url]},
-        },
-    }
-else:
-    CHANNEL_LAYERS = {
-        "default": {"BACKEND": "channels.layers.InMemoryChannelLayer"},
-    }
