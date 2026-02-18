@@ -3,6 +3,7 @@ Match management views: timer control, video upload, event instances, live and p
 Formation comparison uses Match.opponent_formation only; no opposition event stats.
 """
 import uuid
+from urllib.parse import quote
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -12,10 +13,12 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from django.core.files.storage import default_storage
 from django.conf import settings
 from django.http import FileResponse
+from rest_framework.permissions import AllowAny
 
 from .models import Match, PlayerEventInstance, MatchRecording, EVENT_CHOICES
 from .serializers import MatchSerializer, EventInstanceSerializer
 from .views import _get_team, EVENT_KEYS
+from .stream_token import make_stream_token, validate_stream_token
 
 
 class MatchTimerControlView(APIView):
@@ -105,7 +108,11 @@ class MatchVideoUploadView(APIView):
 
         recording.save()
 
-        stream_url = request.build_absolute_uri(f"/api/matches/{match_id}/recording/stream/") if recording.file else None
+        if recording.file and request.user.is_authenticated:
+            token = make_stream_token(match_id, request.user.id)
+            stream_url = request.build_absolute_uri(f"/api/matches/{match_id}/recording/stream/?token={quote(token, safe='')}")
+        else:
+            stream_url = None
         return Response({
             "ok": True,
             "recording_url": request.build_absolute_uri(recording.file.url) if recording.file else None,
@@ -210,7 +217,11 @@ class MatchVideoConfirmView(APIView):
         recording_url = recording.file.url if recording.file else None
         if callable(recording_url):
             recording_url = recording_url()
-        stream_url = request.build_absolute_uri(f"/api/matches/{match_id}/recording/stream/")
+        if request.user.is_authenticated:
+            token = make_stream_token(match_id, request.user.id)
+            stream_url = request.build_absolute_uri(f"/api/matches/{match_id}/recording/stream/?token={quote(token, safe='')}")
+        else:
+            stream_url = None
         return Response({
             "ok": True,
             "recording_url": recording_url,
@@ -253,17 +264,33 @@ def _content_type_for_recording(name):
 
 class MatchRecordingStreamView(APIView):
     """
-    GET /api/matches/<match_id>/recording/stream/
-    Stream the match recording from storage (S3 or local). Use this URL for playback to avoid
-    CORS with S3 and missing /media/ on Railway. Requires auth.
+    GET /api/matches/<match_id>/recording/stream/?token=<signed_token>
+    Stream the match recording. Accepts either ?token= (for <video> src) or Bearer auth.
+    Token is short-lived so the video element can load without sending Authorization header.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def get(self, request, match_id):
-        team = _get_team(request)
-        if not team:
-            return Response({"detail": "No team assigned."}, status=400)
-        match = Match.objects.filter(team=team, id=match_id).first()
+        match = None
+        token = request.query_params.get("token", "").strip()
+        if token:
+            valid, user_id = validate_stream_token(token, match_id)
+            if valid:
+                from django.contrib.auth import get_user_model
+                User = get_user_model()
+                user = User.objects.filter(pk=user_id).first()
+                if user:
+                    team = getattr(getattr(user, "profile", None), "team", None)
+                    if team:
+                        match = Match.objects.filter(team=team, id=match_id).first()
+        if not match:
+            # Fall back to normal auth
+            if not request.user or not request.user.is_authenticated:
+                return Response({"detail": "Authentication required."}, status=401)
+            team = _get_team(request)
+            if not team:
+                return Response({"detail": "No team assigned."}, status=400)
+            match = Match.objects.filter(team=team, id=match_id).first()
         if not match:
             return Response({"detail": "Match not found."}, status=404)
         try:

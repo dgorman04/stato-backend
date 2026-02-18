@@ -1,8 +1,11 @@
+from urllib.parse import quote
+
 from django.contrib.auth.models import User
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from .models import Player, PlayerEventStat, Profile, Team, Match, PlayerEventInstance, ZoneAnalysis
+from .stream_token import make_stream_token
 
 
 class EventStatSerializer(serializers.ModelSerializer):
@@ -46,11 +49,13 @@ class MatchSerializer(serializers.ModelSerializer):
         return None
 
     def get_recording_stream_url(self, obj):
-        """Backend proxy URL for playback; avoids CORS with S3 and missing /media/ on Railway."""
+        """Backend proxy URL for playback with signed token (video element cannot send Auth header)."""
         if hasattr(obj, "recording") and obj.recording.file:
             request = self.context.get("request")
-            if request:
-                return request.build_absolute_uri(f"/api/matches/{obj.id}/recording/stream/")
+            if request and request.user and request.user.is_authenticated:
+                token = make_stream_token(obj.id, request.user.id)
+                token_qs = quote(token, safe="")
+                return request.build_absolute_uri(f"/api/matches/{obj.id}/recording/stream/?token={token_qs}")
         return None
 
 
