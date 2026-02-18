@@ -95,6 +95,8 @@ class Match(models.Model):
     """
     MATCH_STATE_CHOICES = [
         ("not_started", "Not Started"),
+        ("first_half", "1st Half"),
+        ("second_half", "2nd Half"),
         ("in_progress", "In Progress"),
         ("paused", "Paused"),
         ("finished", "Finished"),
@@ -122,9 +124,8 @@ class Match(models.Model):
 
     # Match state and timer
     state = models.CharField(max_length=20, choices=MATCH_STATE_CHOICES, default="not_started")
-    elapsed_seconds = models.PositiveIntegerField(default=0)  # Total elapsed match time (frozen on pause/finish)
-    timer_started_at = models.DateTimeField(null=True, blank=True)  # When timer was last started/resumed; used to compute live elapsed
-    first_half_duration = models.PositiveIntegerField(null=True, blank=True)  # Kept for DB compatibility; timer uses start/pause/finish only
+    elapsed_seconds = models.PositiveIntegerField(default=0)  # Total elapsed match time
+    first_half_duration = models.PositiveIntegerField(null=True, blank=True)  # Kept for DB compatibility
     
     # Formation
     formation = models.CharField(max_length=20, choices=FORMATION_CHOICES, null=True, blank=True)

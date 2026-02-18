@@ -334,7 +334,7 @@ class CurrentLiveMatchView(APIView):
 
         live_match = Match.objects.filter(
             team=team,
-            state__in=["in_progress", "paused"]
+            state__in=["in_progress", "paused", "first_half", "second_half"]
         ).order_by("-created_at").first()
 
         if not live_match:

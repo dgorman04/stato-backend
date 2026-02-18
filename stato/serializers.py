@@ -1,5 +1,4 @@
 from urllib.parse import quote
-from django.utils import timezone
 
 from django.contrib.auth.models import User
 from rest_framework import serializers
@@ -22,7 +21,6 @@ class EventStatSerializer(serializers.ModelSerializer):
 
 class MatchSerializer(serializers.ModelSerializer):
     is_home = serializers.BooleanField()
-    elapsed_seconds = serializers.SerializerMethodField()
     has_recording = serializers.SerializerMethodField()
     recording_url = serializers.SerializerMethodField()
     recording_stream_url = serializers.SerializerMethodField()
@@ -36,14 +34,6 @@ class MatchSerializer(serializers.ModelSerializer):
             "season", "is_home", "goals_scored", "goals_conceded", "xg", "xg_against",
             "has_recording", "recording_url", "recording_stream_url"
         ]
-
-    def get_elapsed_seconds(self, obj):
-        """When match is in progress and timer_started_at is set, return live elapsed (so manager and analyst see same count)."""
-        if obj.state == "in_progress" and getattr(obj, "timer_started_at", None):
-            base = obj.elapsed_seconds or 0
-            delta = (timezone.now() - obj.timer_started_at).total_seconds()
-            return int(base + delta)
-        return obj.elapsed_seconds or 0
 
     def get_has_recording(self, obj):
         return hasattr(obj, "recording")

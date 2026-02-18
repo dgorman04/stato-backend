@@ -1,6 +1,6 @@
-# Add timer_started_at so elapsed_seconds can be computed live when match is in progress
+# No-op: timer_started_at was reverted; 0010 drops the column if it exists anywhere.
 
-from django.db import migrations, models
+from django.db import migrations
 
 
 class Migration(migrations.Migration):
@@ -10,9 +10,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name='match',
-            name='timer_started_at',
-            field=models.DateTimeField(blank=True, null=True),
-        ),
+        # Intentionally empty - we no longer add timer_started_at; 0010 cleans up if it was ever added.
     ]
