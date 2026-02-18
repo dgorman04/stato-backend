@@ -264,6 +264,31 @@ def _content_type_for_recording(name):
     return "video/mp4"
 
 
+class MatchRecordingPlaybackURLView(APIView):
+    """
+    GET /api/matches/<match_id>/recording/playback-url/
+    Returns a playable stream URL (with token) so the frontend always has a working video src.
+    Use this when the match has a recording; avoids /media/ URLs that may 404 on hosted backends.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, match_id):
+        team = _get_team(request)
+        if not team:
+            return Response({"detail": "No team assigned."}, status=400)
+        match = Match.objects.filter(team=team, id=match_id).first()
+        if not match:
+            return Response({"detail": "Match not found."}, status=404)
+        try:
+            if not match.recording.file:
+                return Response({"detail": "No recording."}, status=404)
+        except MatchRecording.DoesNotExist:
+            return Response({"detail": "No recording."}, status=404)
+        token = make_stream_token(match_id, request.user.id)
+        url = request.build_absolute_uri(f"/api/matches/{match_id}/recording/stream/?token={quote(token, safe='')}")
+        return Response({"url": url}, status=200)
+
+
 class MatchRecordingStreamView(APIView):
     """
     GET /api/matches/<match_id>/recording/stream/?token=<signed_token>
@@ -309,6 +334,9 @@ class MatchRecordingStreamView(APIView):
             f = default_storage.open(name, "rb")
             response = FileResponse(f, content_type=content_type, as_attachment=False)
             response["Accept-Ranges"] = "bytes"
+            # Ensure CORS so <video> from another origin can load this stream
+            response["Access-Control-Allow-Origin"] = request.headers.get("Origin", "*")
+            response["Access-Control-Expose-Headers"] = "Accept-Ranges, Content-Length, Content-Range"
             return response
         except Exception as e:
             return Response({"detail": str(e)}, status=500)

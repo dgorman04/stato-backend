@@ -29,15 +29,26 @@ def root_view(request):
         "note": "WebSockets use the Node server (e.g. ws://localhost:3001), not this URL.",
     })
 
+def _add_cors_headers(request, response):
+    """Add CORS headers so cross-origin frontends can use this response."""
+    origin = request.META.get("HTTP_ORIGIN", "*")
+    response["Access-Control-Allow-Origin"] = origin
+    response["Access-Control-Expose-Headers"] = "Accept-Ranges, Content-Length, Content-Range"
+
+
 def _serve_media_with_ranges(request, path):
     """Serve file from MEDIA_ROOT with Accept-Ranges so video seeking works in the browser."""
     path = (path or "").lstrip("/")
     if not path:
-        return HttpResponse(status=404)
+        r = HttpResponse(status=404)
+        _add_cors_headers(request, r)
+        return r
     media_root = os.path.abspath(str(settings.MEDIA_ROOT))
     file_path = os.path.normpath(os.path.join(media_root, path))
     if not file_path.startswith(media_root) or not os.path.isfile(file_path):
-        return HttpResponse(status=404)
+        r = HttpResponse(status=404)
+        _add_cors_headers(request, r)
+        return r
     size = os.path.getsize(file_path)
     content_type = "application/octet-stream"
     if path.lower().endswith(".mp4"):
@@ -51,15 +62,20 @@ def _serve_media_with_ranges(request, path):
         response = HttpResponse(content, status=200, content_type=content_type)
         response["Content-Length"] = str(size)
         response["Accept-Ranges"] = "bytes"
+        _add_cors_headers(request, response)
         return response
     match = re.match(r"bytes=(\d*)-(\d*)", range_header)
     if not match:
-        return HttpResponse(status=416)
+        r = HttpResponse(status=416)
+        _add_cors_headers(request, r)
+        return r
     start_s, end_s = match.groups()
     start = int(start_s) if start_s else 0
     end = int(end_s) if end_s else size - 1
     if start >= size:
-        return HttpResponse(status=416)
+        r = HttpResponse(status=416)
+        _add_cors_headers(request, r)
+        return r
     end = min(end, size - 1)
     length = end - start + 1
     with open(file_path, "rb") as f:
@@ -69,6 +85,7 @@ def _serve_media_with_ranges(request, path):
     response["Content-Range"] = f"bytes {start}-{end}/{size}"
     response["Content-Length"] = str(length)
     response["Accept-Ranges"] = "bytes"
+    _add_cors_headers(request, response)
     return response
 
 urlpatterns = [
