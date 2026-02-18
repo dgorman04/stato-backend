@@ -4,6 +4,7 @@ Formation comparison uses Match.opponent_formation only; no opposition event sta
 """
 import re
 from urllib.parse import quote
+from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -43,18 +44,22 @@ class MatchTimerControlView(APIView):
         if action == "start":
             match.state = "in_progress"
             match.elapsed_seconds = int(elapsed) if elapsed is not None else 0
+            match.timer_started_at = timezone.now()
         elif action == "pause":
             match.state = "paused"
             if elapsed is not None:
                 match.elapsed_seconds = int(elapsed)
+            match.timer_started_at = None
         elif action == "resume":
             match.state = "in_progress"
             if elapsed is not None:
                 match.elapsed_seconds = int(elapsed)
+            match.timer_started_at = timezone.now()
         elif action == "finish":
             match.state = "finished"
             if elapsed is not None:
                 match.elapsed_seconds = int(elapsed)
+            match.timer_started_at = None
             from .views import _update_match_xg
             _update_match_xg(match)
         else:
