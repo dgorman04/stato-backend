@@ -100,9 +100,10 @@ if os.environ.get("AWS_STORAGE_BUCKET_NAME"):
     AWS_S3_CUSTOM_DOMAIN = os.environ.get("AWS_S3_CUSTOM_DOMAIN", None)  # e.g. cdn.example.com
     AWS_QUERYSTRING_AUTH = True  # presigned URLs for private access
 
-# Allow large video uploads (Django streams to temp file; default 2.5 MB would reject)
-# Note: Railway has a 5-minute request timeout – very large uploads may still fail.
-DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024 * 1024   # 2 GB
+# No practical video size limit: allow very large uploads (Django streams to temp file).
+# Presigned S3 uploads bypass Django; fallback POST /video/ uses these.
+# Railway request timeout may still apply for very large fallback uploads.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024 * 1024  # 10 GB
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024         # 10 MB in RAM, rest streamed to disk
 
 # ----------------------------
