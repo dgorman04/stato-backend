@@ -20,7 +20,8 @@ class MatchSerializer(serializers.ModelSerializer):
     is_home = serializers.BooleanField()
     has_recording = serializers.SerializerMethodField()
     recording_url = serializers.SerializerMethodField()
-    
+    recording_stream_url = serializers.SerializerMethodField()
+
     class Meta:
         model = Match
         fields = [
@@ -28,17 +29,28 @@ class MatchSerializer(serializers.ModelSerializer):
             "state", "elapsed_seconds", "first_half_duration",
             "formation", "opponent_formation",
             "season", "is_home", "goals_scored", "goals_conceded", "xg", "xg_against",
-            "has_recording", "recording_url"
+            "has_recording", "recording_url", "recording_stream_url"
         ]
-    
+
     def get_has_recording(self, obj):
         return hasattr(obj, "recording")
-    
+
     def get_recording_url(self, obj):
         if hasattr(obj, "recording") and obj.recording.file:
             request = self.context.get("request")
             if request:
-                return request.build_absolute_uri(obj.recording.file.url)
+                url = obj.recording.file.url
+                if callable(url):
+                    url = url()
+                return request.build_absolute_uri(url) if url and not url.startswith("http") else url
+        return None
+
+    def get_recording_stream_url(self, obj):
+        """Backend proxy URL for playback; avoids CORS with S3 and missing /media/ on Railway."""
+        if hasattr(obj, "recording") and obj.recording.file:
+            request = self.context.get("request")
+            if request:
+                return request.build_absolute_uri(f"/api/matches/{obj.id}/recording/stream/")
         return None
 
 

@@ -11,6 +11,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 
 from django.core.files.storage import default_storage
 from django.conf import settings
+from django.http import FileResponse
 
 from .models import Match, PlayerEventInstance, MatchRecording, EVENT_CHOICES
 from .serializers import MatchSerializer, EventInstanceSerializer
@@ -104,9 +105,11 @@ class MatchVideoUploadView(APIView):
 
         recording.save()
 
+        stream_url = request.build_absolute_uri(f"/api/matches/{match_id}/recording/stream/") if recording.file else None
         return Response({
             "ok": True,
             "recording_url": request.build_absolute_uri(recording.file.url) if recording.file else None,
+            "recording_stream_url": stream_url,
             "duration_seconds": recording.duration_seconds,
         }, status=200 if created else 201)
 
@@ -207,11 +210,79 @@ class MatchVideoConfirmView(APIView):
         recording_url = recording.file.url if recording.file else None
         if callable(recording_url):
             recording_url = recording_url()
+        stream_url = request.build_absolute_uri(f"/api/matches/{match_id}/recording/stream/")
         return Response({
             "ok": True,
             "recording_url": recording_url,
+            "recording_stream_url": stream_url,
             "duration_seconds": recording.duration_seconds,
         }, status=200 if created else 201)
+
+
+class MatchOppositionView(APIView):
+    """
+    GET /api/matches/<match_id>/opposition/
+    Opposition event stats were removed; formation comparison uses Match.opponent_formation only.
+    Returns empty list so the frontend does not 404.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, match_id):
+        team = _get_team(request)
+        if not team:
+            return Response({"detail": "No team assigned."}, status=400)
+        match = Match.objects.filter(team=team, id=match_id).first()
+        if not match:
+            return Response({"detail": "Match not found."}, status=404)
+        return Response([], status=200)
+
+
+def _content_type_for_recording(name):
+    """Return a sensible Content-Type for a recording filename."""
+    if not name:
+        return "video/mp4"
+    name_lower = name.lower()
+    if name_lower.endswith(".mov"):
+        return "video/quicktime"
+    if name_lower.endswith(".mp4"):
+        return "video/mp4"
+    if name_lower.endswith(".webm"):
+        return "video/webm"
+    return "video/mp4"
+
+
+class MatchRecordingStreamView(APIView):
+    """
+    GET /api/matches/<match_id>/recording/stream/
+    Stream the match recording from storage (S3 or local). Use this URL for playback to avoid
+    CORS with S3 and missing /media/ on Railway. Requires auth.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, match_id):
+        team = _get_team(request)
+        if not team:
+            return Response({"detail": "No team assigned."}, status=400)
+        match = Match.objects.filter(team=team, id=match_id).first()
+        if not match:
+            return Response({"detail": "Match not found."}, status=404)
+        try:
+            recording = match.recording
+        except MatchRecording.DoesNotExist:
+            return Response({"detail": "No recording."}, status=404)
+        if not recording.file:
+            return Response({"detail": "No recording file."}, status=404)
+        name = recording.file.name
+        if not default_storage.exists(name):
+            return Response({"detail": "Recording file not found."}, status=404)
+        content_type = _content_type_for_recording(name)
+        try:
+            f = default_storage.open(name, "rb")
+            response = FileResponse(f, content_type=content_type, as_attachment=False)
+            response["Accept-Ranges"] = "bytes"
+            return response
+        except Exception as e:
+            return Response({"detail": str(e)}, status=500)
 
 
 class MatchEventInstancesView(APIView):
